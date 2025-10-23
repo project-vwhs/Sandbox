@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Colorado Patient Map by Zip Code</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://d3js.org/topojson.v3.min.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f4f4f9;
+            color: #333;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 0;
+            padding: 20px;
+        }
+
+        h1 {
+            font-weight: 600;
+            color: #1a1a1a;
+        }
+
+        /* --- CONTROLS --- */
+        .controls {
+            margin-bottom: 20px;
+            background: #ffffff;
+            padding: 15px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+            display: flex;
+            gap: 20px;
+            align-items: center;
+            flex-wrap: wrap; /* Allow wrapping on small screens */
+            justify-content: center;
+        }
+
+        /* --- LEGEND --- */
+        .legend {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap; /* Allow legend to wrap if needed */
+        }
+
+        .legend-scale {
+            display: flex;
+            margin-left: 10px;
+            align-items: center; /* Align items vertically */
+        }
+
+        .legend-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            font-size: 11px;
+            color: #555;
+            min-width: 40px;
+        }
+
+        .legend-color {
+            width: 40px;
+            height: 20px;
+            border-top: 1px solid #ccc;
+            border-bottom: 1px solid #ccc;
+        }
+        .legend-item:first-child .legend-color {
+            border-left: 1px solid #ccc;
+            border-top-left-radius: 4px;
+            border-bottom-left-radius: 4px;
+        }
+        .legend-item:last-child .legend-color {
+            border-right: 1px solid #ccc;
+            border-top-right-radius: 4px;
+            border-bottom-right-radius: 4px;
+        }
+        
+        .legend-label {
+            margin-top: 4px;
+        }
+
+        /* --- MAP CONTAINER --- */
+        #map-container {
+            position: relative;
+            width: 100%;
+            max-width: 960px;
+            background: #ffffff;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+            overflow: hidden; /* Ensures SVG corners are rounded */
+        }
+
+        #colorado-map {
+            width: 100%;
+            height: auto;
+            background-color: #ffffff; /* Solid white background for export */
+        }
+
+        /* --- SVG STYLES --- */
+        .county {
+            fill: none; /* Make county fill transparent */
+            stroke: #333;
+            stroke-width: 1px;
+            pointer-events: none; /* Allow hovering on zips underneath */
+        }
+
+        .zip-code {
+            /* stroke: #fff; */
+            /* stroke-width: 0.2px; */
+            transition: fill-opacity 0.2s ease;
+        }
+
+        .zip-code:hover {
+            fill-opacity: 1 !important;
+            stroke: #000;
+            stroke-width: 1.5px;
+        }
+
+        .county-label {
+            font-size: 10px;
+            font-weight: 500;
+            fill: #444;
+            text-anchor: middle;
+            pointer-events: none;
+            /* Simple text shadow for legibility */
+            paint-order: stroke;
+            stroke: #ffffff;
+            stroke-width: 2px;
+            stroke-linecap: butt;
+            stroke-linejoin: miter;
+        }
+        
+        #loading-message {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 1.2em;
+            font-weight: 500;
+            color: #777;
+        }
+
+        /* --- TOOLTIP --- */
+        #tooltip {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.85);
+            color: white;
+            padding: 10px 15px;
+            border-radius: 8px;
+            font-size: 14px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+            z-index: 10;
+        }
+        #tooltip-zip {
+            font-weight: bold;
+            font-size: 16px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Colorado Patient Map</h1>
+    
+    <div class="controls">
+        
+        <!-- Legend -->
+        <div class="legend">
+            <strong>Patients:</strong>
+            <div id="legend-scale" class="legend-scale"></div>
+        </div>
+    </div>
+
+    <!-- Map Container -->
+    <div id="map-container">
+        <svg id="colorado-map"></svg>
+        <div id="loading-message">Loading Map Data...</div>
+    </div>
+
+    <!-- Tooltip -->
+    <div id="tooltip">
+        <div id="tooltip-zip"></div>
+        <div id="tooltip-patients"></div>
+    </div>
+
+    <script>
+        // --- 1. PATIENT DATA ---
+        // Data manually transcribed from your uploaded image (image_0db672.png)
+        const patientDataByZip = {
+            "80439": 17, "80440": 15, "80443": 51, "80461": 15, "80807": 17,
+            "80817": 16, "80823": 13, "80829": 26, "81001": 17, "81003": 17,
+            "81004": 27, "81005": 38, "81006": 28, "81007": 14, "81008": 74,
+            "81030": 81, "81033": 10, "81039": 296, "81041": 11, "81044": 35,
+            "81047": 36, "81049": 24, "81050": 4103, "81052": 451, "81054": 1675,
+            "81055": 12, "81057": 19, "81058": 269, "81062": 201, "81063": 769,
+            "81064": 17, "81067": 2127, "81071": 83, "81073": 151, "81077": 226,
+            "81082": 14, "81089": 10, "81101": 7419, "81120": 832, "81122": 395,
+            "81124": 84, "81125": 1907, "81126": 11, "81128": 11, "81130": 42,
+            "81131": 545, "81132": 117, "81133": 539, "81137": 96, "81138": 44,
+            "81140": 760, "81141": 401, "81143": 264, "81144": 912, "81146": 250,
+            "81147": 13, "81148": 137, "81149": 239, "81151": 466, "81152": 908,
+            "81154": 13, "81155": 140, "81157": 27, "81201": 1221, "81211": 700,
+            "81212": 2299, "81221": 12, "81222": 24, "81224": 108, "81225": 345,
+            "81233": 15, "81235": 20, "81240": 200, "81242": 23, "81244": 30,
+            "81248": 14, "81251": 13, "81252": 339, "87512": 32, "87566": 11,
+            // Adding a few 0-patient zips for testing the "transparent" rule
+            "80001": 0,
+            "80002": 0
+        };
+
+        // --- 2. MAP & COLOR SETUP ---
+        const width = 960;
+        const height = 680;
+
+        // Color scale (threshold scale) based on your legend's ranges
+        const colorDomain = [1, 10, 100, 500, 1000, 2500, 5000];
+        // Sequential Blue -> Yellow -> Red
+        const colorRange = [
+            "#313695", // < 1 (effectively 0, but we'll override 0)
+            "#4575b4", // 1-9
+            "#74add1", // 10-99
+            "#abd9e9", // 100-499
+            "#fee090", // 500-999
+            "#fdae61", // 1000-2499
+            "#f46d43", // 2500-4999
+            "#d73027"  // 5000+
+        ];
+
+        const colorScale = d3.scaleThreshold()
+            .domain(colorDomain)
+            .range(colorRange);
+
+        // --- 3. LEGEND ---
+        const legendContainer = d3.select("#legend-scale");
+        
+        // Add "No Data" swatch to legend
+        const noDataItem = legendContainer.append("div").attr("class", "legend-item");
+        noDataItem.append("div")
+            .attr("class", "legend-color")
+            .style("background-color", "#f0f0f0") // Light gray for "No Data"
+            .style("border", "1px solid #ccc");
+        noDataItem.append("div")
+            .attr("class", "legend-label")
+            .text("No Data");
+        
+        const legendData = [0, ...colorDomain]; // [0, 1, 10, 100, 500, 1000, 2500, 5000]
+
+        legendData.forEach((d, i) => {
+            const item = legendContainer.append("div").attr("class", "legend-item");
+            
+            item.append("div")
+                .attr("class", "legend-color")
+                .style("background-color", i === 0 ? "transparent" : colorScale(d))
+                .style("border", i === 0 ? "1px dashed #ccc" : null);
+
+            let label = "";
+            if (i === 0) {
+                label = "0";
+            } else if (i === legendData.length - 1) {
+                label = `${d.toLocaleString()}+`;
+            } else {
+                label = `${d.toLocaleString()}`;
+            }
+            
+            item.append("div")
+                .attr("class", "legend-label")
+                .text(label);
+        });
+
+        // --- 4. SVG & PROJECTION ---
+        const svg = d3.select("#colorado-map")
+            .attr("viewBox", `0 0 ${width} ${height}`);
+            
+        const path = d3.geoPath();
+        // Adjust the projection rotation to center on Colorado
+        const projection = d3.geoAlbers().rotate([105.5, 0]);
+
+        // Tooltip
+        const tooltip = d3.select("#tooltip");
+        const loadingMsg = d3.select("#loading-message");
+
+        // --- 5. LOAD & DRAW DATA ---
+        // Using reliable, standard atlas files
+        const countyDataUrl = "https://cdn.jsdelivr.net/npm/us-atlas@3/counties-10m.json";
+        // Using a different GeoJSON file specific to Colorado zip codes
+        const zipDataUrl = "https://raw.githubusercontent.com/OpenDataDE/State-zip-code-GeoJSON/master/co_colorado_zip_codes_geo.min.json";
+
+        Promise.all([
+            d3.json(countyDataUrl),
+            d3.json(zipDataUrl)
+        ]).then(([usAtlas, usZips]) => {
+            
+            // --- Process County Data ---
+            const allCounties = topojson.feature(usAtlas, usAtlas.objects.counties);
+            const coCountiesGeoJSON = {
+                type: "FeatureCollection",
+                // Filter features: Colorado's state FIPS code is '08'
+                features: allCounties.features.filter(d => d.id.startsWith("08"))
+            };
+            
+            // --- Process Zip Code Data ---
+            // This file is already a GeoJSON FeatureCollection for Colorado
+            const coZipsGeoJSON = usZips;
+
+            // --- Fit Projection to Colorado ---
+            projection.fitSize([width, height], coCountiesGeoJSON);
+            path.projection(projection);
+
+            // --- Draw Zip Codes (Bottom Layer) ---
+            svg.append("g")
+                .attr("class", "zip-codes")
+                .selectAll("path")
+                .data(coZipsGeoJSON.features)
+                .join("path")
+                .attr("class", "zip-code")
+                .attr("d", path)
+                .each(function(d) {
+                    const zip = d.properties.ZCTA5CE10; // Use correct property name
+                    const patients = patientDataByZip[zip]; // Get data, might be undefined
+
+                    let fillColor, fillOpacity, stroke, strokeWidth;
+
+                    if (patients === undefined) {
+                        // Zip not in our data
+                        fillColor = "#f0f0f0"; // Light gray
+                        fillOpacity = 0.8;
+                        stroke = "#fff";
+                        strokeWidth = "0.2px";
+                    } else if (patients === 0) {
+                        // Zip is in data, but has 0 patients (as requested)
+                        fillColor = "transparent";
+                        fillOpacity = 0;
+                        stroke = "none";
+                        strokeWidth = "0";
+                    } else {
+                        // Zip has patient data
+                        fillColor = colorScale(patients);
+                        fillOpacity = 0.8;
+                        stroke = "#fff";
+                        strokeWidth = "0.2px";
+                    }
+
+                    d3.select(this)
+                        .attr("fill", fillColor)
+                        .style("fill-opacity", fillOpacity)
+                        .style("stroke", stroke)
+                        .style("stroke-width", strokeWidth);
+                })
+                .on("mouseover", (event, d) => {
+                    const zip = d.properties.ZCTA5CE10; // Use correct property name
+                    const patients = patientDataByZip[zip];
+                    
+                    let patientText = "No Data";
+                    if (patients !== undefined) {
+                        patientText = `Patients: ${patients.toLocaleString()}`;
+                    }
+                    
+                    tooltip.transition().style("opacity", 1);
+                    d3.select("#tooltip-zip").text(`Zip: ${zip}`);
+                    d3.select("#tooltip-patients").text(patientText);
+                })
+                .on("mousemove", (event) => {
+                    // Position tooltip relative to the map container
+                    const [x, y] = d3.pointer(event, d3.select("#map-container").node());
+                    tooltip.style("left", (x + 20) + "px")
+                           .style("top", (y) + "px");
+                })
+                .on("mouseout", () => {
+                    tooltip.transition().style("opacity", 0);
+                });
+
+            // --- Draw County Boundaries (Middle Layer) ---
+            svg.append("g")
+                .attr("class", "counties")
+                .selectAll("path")
+                .data(coCountiesGeoJSON.features)
+                .join("path")
+                .attr("class", "county")
+                .attr("d", path)
+                // --- FIX: Inline styles for export ---
+                .attr("fill", "none")
+                .attr("stroke", "#333")
+                .attr("stroke-width", "1px")
+                .style("pointer-events", "none");
+
+            // --- Draw County Labels (Top Layer) ---
+            svg.append("g")
+                .attr("class", "county-labels")
+                .selectAll("text")
+                .data(coCountiesGeoJSON.features)
+                .join("text")
+                .attr("class", "county-label")
+                .text(d => d.properties.name) // Use 'name' property from us-atlas
+                // --- FIX: Inline styles for export ---
+                .attr("font-size", "10px")
+                .attr("font-weight", "500")
+                .attr("fill", "#444")
+                .attr("text-anchor", "middle")
+                .attr("paint-order", "stroke")
+                .attr("stroke", "#ffffff")
+                .attr("stroke-width", "2px")
+                .attr("stroke-linecap", "butt")
+                .attr("stroke-linejoin", "miter")
+                .style("pointer-events", "none")
+                // --- End of inlined styles ---
+                .attr("transform", d => {
+                    const centroid = path.centroid(d);
+                    // Handle cases where centroid might be NaN
+                    if (isNaN(centroid[0]) || isNaN(centroid[1])) {
+                        return "translate(-9999, -9999)"; // Hide label
+                    }
+                    return `translate(${centroid})`;
+                });
+            
+            // Hide loading message
+            loadingMsg.style("display", "none");
+
+        }).catch(error => {
+            console.error("Error loading map data:", error);
+            loadingMsg.style("color", "red").text("Error loading map data.");
+        });
+
+        // --- 6. EXPORT FUNCTION ---
+        // Export functionality removed as requested.
+
+    </script>
+</body>
+</html>
